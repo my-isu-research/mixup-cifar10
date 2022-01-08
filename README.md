@@ -1,4 +1,9 @@
-# Mixup-CIFAR10
+# Mixup-CIFAR10 For Medical Datasets
+
+## UPDATE
+This code is intended for testing the impact of the MixUp data augmentation on datasets from the Medical Domain. Few updates would be added to enable running different datasets, most configurations should remain same
+
+
 By [Hongyi Zhang](http://web.mit.edu/~hongyiz/www/), [Moustapha Cisse](https://mine.kaust.edu.sa/Pages/cisse.aspx), [Yann Dauphin](http://dauphin.io/), [David Lopez-Paz](https://lopezpaz.org/).
 
 Facebook AI Research
