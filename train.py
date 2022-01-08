@@ -52,7 +52,7 @@ if args.seed != 0:
 print('==> Preparing data..')
 if args.augment:
     transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
+        transforms.RandomCrop(224, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465),
