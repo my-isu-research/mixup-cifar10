@@ -9,6 +9,7 @@ from __future__ import print_function
 import argparse
 import csv
 import os
+import torchvision.models as trained_models
 
 import numpy as np
 import torch
@@ -22,6 +23,9 @@ import torchvision
 
 import models
 from utils import progress_bar
+
+from first import *
+import pandas as pd
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
@@ -39,82 +43,11 @@ parser.add_argument('--no-augment', dest='augment', action='store_false',
 parser.add_argument('--decay', default=1e-4, type=float, help='weight decay')
 parser.add_argument('--alpha', default=1., type=float,
                     help='mixup interpolation coefficient (default: 1)')
+parser.add_argument('--dataset', default='data', type=str,
+                    help='Folder containing the dataset')
+parser.add_argument('--iterations', default=1, type=int,
+                    help='Number of experiments to run')
 args = parser.parse_args()
-
-use_cuda = torch.cuda.is_available()
-
-best_acc = 0  # best test accuracy
-start_epoch = 0  # start from epoch 0 or last checkpoint epoch
-
-if args.seed != 0:
-    torch.manual_seed(args.seed)
-
-# Data
-print('==> Preparing data..')
-if args.augment:
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(224, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465),
-                             (0.2023, 0.1994, 0.2010)),
-    ])
-else:
-    transform_train = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465),
-                             (0.2023, 0.1994, 0.2010)),
-    ])
-
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
-
-trainset = datasets.ImageFolder(os.path.join(dataset, 'train'),
-                                              transform_train)
-trainloader = torch.utils.data.DataLoader(trainset,
-                                          batch_size=args.batch_size,
-                                          shuffle=True, num_workers=8)
-testset = datasets.ImageFolder(os.path.join(dataset, 'test'),
-                                              transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100,
-                                         shuffle=False, num_workers=8)
-
-
-# Model
-if args.resume:
-    # Load checkpoint.
-    print('==> Resuming from checkpoint..')
-    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-    checkpoint = torch.load('./checkpoint/ckpt.t7' + args.name + '_'
-                            + str(args.seed))
-    net = checkpoint['net']
-    best_acc = checkpoint['acc']
-    start_epoch = checkpoint['epoch'] + 1
-    rng_state = checkpoint['rng_state']
-    torch.set_rng_state(rng_state)
-else:
-    print('==> Building model..')
-    net = models.__dict__[args.model]()
-
-if not os.path.isdir('results'):
-    os.mkdir('results')
-logname = ('results/log_' + net.__class__.__name__ + '_' + args.name + '_'
-           + str(args.seed) + '.csv')
-
-if use_cuda:
-    net.cuda()
-    net = torch.nn.DataParallel(net)
-    print(torch.cuda.device_count())
-    cudnn.benchmark = True
-    print('Using CUDA..')
-
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9,
-                      weight_decay=args.decay)
-
 
 def mixup_data(x, y, alpha=1.0, use_cuda=True):
     '''Returns mixed inputs, pairs of targets, and lambda'''
@@ -155,7 +88,7 @@ def train(epoch):
                                                       targets_a, targets_b))
         outputs = net(inputs)
         loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
-        train_loss += loss.data[0]
+        train_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)
         total += targets.size(0)
         correct += (lam * predicted.eq(targets_a.data).cpu().sum().float()
@@ -185,7 +118,7 @@ def test(epoch):
         outputs = net(inputs)
         loss = criterion(outputs, targets)
 
-        test_loss += loss.data[0]
+        test_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)
         total += targets.size(0)
         correct += predicted.eq(targets.data).cpu().sum()
@@ -227,18 +160,115 @@ def adjust_learning_rate(optimizer, epoch):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
+use_cuda = torch.cuda.is_available()
+result_df = pd.DataFrame(columns = ['Test_Acc', 'Test, Pre', 'Test_Re', 'Test_F1', 'Train_Acc',
+'Train_Pre', 'Train_Re', 'Train_F1'])
 
-if not os.path.exists(logname):
-    with open(logname, 'w') as logfile:
-        logwriter = csv.writer(logfile, delimiter=',')
-        logwriter.writerow(['epoch', 'train loss', 'reg loss', 'train acc',
-                            'test loss', 'test acc'])
+if args.seed != 0:
+    torch.manual_seed(args.seed)
 
-for epoch in range(start_epoch, args.epoch):
-    train_loss, reg_loss, train_acc = train(epoch)
-    test_loss, test_acc = test(epoch)
-    adjust_learning_rate(optimizer, epoch)
-    with open(logname, 'a') as logfile:
-        logwriter = csv.writer(logfile, delimiter=',')
-        logwriter.writerow([epoch, train_loss, reg_loss, train_acc, test_loss,
-                            test_acc])
+# Data
+print('==> Preparing data..')
+if args.augment:
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(224, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465),
+                             (0.2023, 0.1994, 0.2010)),
+    ])
+else:
+    transform_train = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465),
+                             (0.2023, 0.1994, 0.2010)),
+    ])
+
+
+transform_test = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+
+dataset = args.dataset
+trainset = datasets.ImageFolder(os.path.join(dataset, 'train'),
+                                              transform_train)
+trainloader = torch.utils.data.DataLoader(trainset,
+                                          batch_size=args.batch_size,
+                                          shuffle=True, num_workers=8)
+testset = datasets.ImageFolder(os.path.join(dataset, 'test'),
+                                              transform_test)
+testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size,
+                                         shuffle=False, num_workers=8)
+
+for iter in range(args.iterations):
+    best_acc = 0  # best test accuracy
+    start_epoch = 0  # start from epoch 0 or last checkpoint epoch
+
+    # Model
+    if args.resume:
+        # Load checkpoint.
+        print('==> Resuming from checkpoint..')
+        assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+        checkpoint = torch.load('./checkpoint/ckpt.t7' + args.name + '_'
+                                + str(args.seed))
+        net = checkpoint['net']
+        best_acc = checkpoint['acc']
+        start_epoch = checkpoint['epoch'] + 1
+        rng_state = checkpoint['rng_state']
+        torch.set_rng_state(rng_state)
+    else:
+        print('==> Building model..')
+        # net = models.__dict__[args.model]()
+        net = trained_models.resnet18(pretrained = True)
+        num_ftrs = net.fc.in_features
+        net.fc = nn.Linear(num_ftrs, len(testset.classes))
+        net = torch.nn.DataParallel(net).cuda()
+
+    if not os.path.isdir('results'):
+        os.mkdir('results')
+    logname = ('results/log_' + net.__class__.__name__ + '_' + args.name + '_'
+               + str(args.seed) + '.csv')
+
+    if use_cuda:
+        net.cuda()
+        net = torch.nn.DataParallel(net)
+        print(torch.cuda.device_count())
+        cudnn.benchmark = True
+        print('Using CUDA..')
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9,
+                          weight_decay=args.decay)
+
+
+    if not os.path.exists(logname):
+        with open(logname, 'w') as logfile:
+            logwriter = csv.writer(logfile, delimiter=',')
+            logwriter.writerow(['epoch', 'train loss', 'reg loss', 'train acc',
+                                'test loss', 'test acc'])
+
+    for epoch in range(start_epoch, args.epoch):
+        train_loss, reg_loss, train_acc = train(epoch)
+        test_loss, test_acc = test(epoch)
+        adjust_learning_rate(optimizer, epoch)
+        with open(logname, 'a') as logfile:
+            logwriter = csv.writer(logfile, delimiter=',')
+            logwriter.writerow([epoch, train_loss, reg_loss, train_acc, test_loss,
+                                test_acc])
+
+    trainset, trainloader, testset, testloader = get_loaders_and_dataset(dataset, transform_train, transform_test, args.batch_size)
+    targets, preds, _ = make_prediction(net, testset.classes, testloader)
+    test_class_report = classification_report(targets, preds, target_names=testset.classes)
+    test_metrics = get_metrics_from_classi_report(test_class_report)
+
+    targets, preds, _ = make_prediction(net, testset.classes, trainloader)
+    train_class_report = classification_report(targets, preds, target_names=testset.classes)
+    train_metrics = get_metrics_from_classi_report(train_class_report)
+
+    print(test_metrics)
+    metrics = []
+    metrics.extend(test_metrics)
+    metrics.extend(train_metrics)
+    result_df.loc[len(result_df.index)] = metrics
+    result_df.to_csv('experimental_results_for_mixup.csv')
